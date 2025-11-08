@@ -1,17 +1,19 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { initializeApp, FirebaseApp } from 'firebase/app';
+import { initializeApp } from 'firebase/app';
+import type { FirebaseApp } from "firebase/app";
 import { 
-  getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, Auth 
+  getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged,
+  type Auth
 } from 'firebase/auth';
 import { 
   getFirestore, collection, query, orderBy, onSnapshot, 
-  addDoc, serverTimestamp, getDocs, Firestore, DocumentData, 
+  addDoc, serverTimestamp,  Firestore,  
   setLogLevel // <-- ADDED: Import setLogLevel for debugging
 } from 'firebase/firestore';
 
 // Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-import { getAnalytics } from "firebase/analytics";
+// import { initializeApp } from "firebase/app";
+// import { getAnalytics } from "firebase/analytics";
 // TODO: Add SDKs for Firebase products that you want to use
 // https://firebase.google.com/docs/web/setup#available-libraries
 
@@ -80,8 +82,8 @@ const fetchWithBackoff = async (url: string, options: RequestInit, maxRetries = 
             if (!response.ok) {
                 const errorBody = await response.text();
                 if (response.status === 400 || response.status === 401 || response.status === 403) {
-                     console.error(`Non-retryable API error ${response.status}: ${errorBody}`);
-                     throw new Error(`API Error: ${response.status}`);
+                    console.error(`Non-retryable API error ${response.status}: ${errorBody}`);
+                    throw new Error(`API Error: ${response.status}`);
                 }
                 throw new Error(`HTTP error! Status: ${response.status}`);
             }
@@ -167,14 +169,16 @@ const App: React.FC = () => {
             setLogLevel('debug'); 
             
             const userAuth: Auth = getAuth(app);
+            const initialAuthToken = localStorage.getItem('authToken');
             setDb(firestore);
             setAuth(userAuth);
-            
+            console.log(db)
             // Log in using the provided token or anonymously
             const authenticate = async () => {
                 try {
                     if (initialAuthToken) {
                         await signInWithCustomToken(userAuth, initialAuthToken);
+
                     } else {
                         await signInAnonymously(userAuth);
                     }
@@ -217,7 +221,7 @@ const App: React.FC = () => {
     useEffect(() => {
         if (!db || !isAuthReady) return;
 
-        const path = `/artifacts/${appId}/public/data/messages`;
+        const path = `/artifacts/${firebaseConfig.appId}/public/data/messages`;
         const messagesQuery = query(collection(db, path), orderBy('timestamp', 'asc'));
 
         const unsubscribe = onSnapshot(messagesQuery, (snapshot) => {
@@ -257,7 +261,7 @@ const App: React.FC = () => {
         };
 
         try {
-            const path = `/artifacts/${appId}/public/data/messages`;
+            const path = `/artifacts/${firebaseConfig.appId}/public/data/messages`;
             await addDoc(collection(db, path), messagePayload);
             setNewMessage('');
         } catch (error) {
@@ -391,7 +395,7 @@ const App: React.FC = () => {
             <header className="bg-white p-4 shadow-md sticky top-0 z-10">
                 <div className="flex justify-between items-center max-w-4xl mx-auto">
                     <h1 className="text-2xl font-extrabold text-blue-600 tracking-tight">
-                        Polyglot Chat <span className="text-sm font-normal text-gray-500">({appId.substring(0, 8)})</span>
+                        Polyglot Chat <span className="text-sm font-normal text-gray-500">({firebaseConfig.appId.substring(0, 8)})</span>
                     </h1>
                     <div className="flex items-center space-x-3">
                         <label htmlFor="language-select" className="text-sm font-medium text-gray-700 hidden sm:block">
