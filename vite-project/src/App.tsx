@@ -1,25 +1,35 @@
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { initializeApp } from 'firebase/app';
-import type { FirebaseApp } from 'firebase/app';
+import { initializeApp, FirebaseApp } from 'firebase/app';
 import { 
-  getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged 
+  getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, Auth 
 } from 'firebase/auth';
 import { 
   getFirestore, collection, query, orderBy, onSnapshot, 
-  addDoc, serverTimestamp, getDocs, Firestore, 
+  addDoc, serverTimestamp, getDocs, Firestore, DocumentData, 
   setLogLevel // <-- ADDED: Import setLogLevel for debugging
 } from 'firebase/firestore';
 
-// --- Global Context Variables from Canvas Environment ---
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-const firebaseConfig = typeof __firebase_config !== 'undefined' 
-  ? JSON.parse(__firebase_config) 
-  : { /* Mock Config */ };
-const initialAuthToken = typeof __initial_auth_token !== 'undefined' 
-  ? __initial_auth_token 
-  : null;
-// --------------------------------------------------------
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+import { getAnalytics } from "firebase/analytics";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+const firebaseConfig = {
+  apiKey: "AIzaSyCfroGkfuDtKI7dTP_L2JLk2ABUaHPTIP8",
+  authDomain: "realtimechattranslation-aae09.firebaseapp.com",
+  projectId: "realtimechattranslation-aae09",
+  storageBucket: "realtimechattranslation-aae09.firebasestorage.app",
+  messagingSenderId: "707301403839",
+  appId: "1:707301403839:web:4b94afc418dd45d4d6ea0a",
+  measurementId: "G-B3M3ZLPDCH"
+};
+
+// // Initialize Firebase
+// const app = initializeApp(firebaseConfig);
+// const analytics = getAnalytics(app);--------------------------------------------------------
 
 // 1. Define TypeScript Interfaces
 interface LanguageOption {
@@ -32,7 +42,14 @@ interface FirestoreTimestamp {
     toDate: () => Date;
 }
 
-
+interface ChatMessage extends DocumentData {
+    id: string; // Document ID (populated after fetching)
+    text: string;
+    userId: string;
+    displayName: string;
+    // timestamp will be FirestoreTimestamp once written, or null before server fills it
+    timestamp: FirestoreTimestamp | null; 
+}
 
 interface TranslatedState {
     text: string;
@@ -56,12 +73,66 @@ const LANGUAGE_OPTIONS: LanguageOption[] = [
 /**
  * Executes a fetch request with exponential backoff for resilience.
  */
-
+const fetchWithBackoff = async (url: string, options: RequestInit, maxRetries = 5): Promise<Response> => {
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            const response = await fetch(url, options);
+            if (!response.ok) {
+                const errorBody = await response.text();
+                if (response.status === 400 || response.status === 401 || response.status === 403) {
+                     console.error(`Non-retryable API error ${response.status}: ${errorBody}`);
+                     throw new Error(`API Error: ${response.status}`);
+                }
+                throw new Error(`HTTP error! Status: ${response.status}`);
+            }
+            return response;
+        } catch (error) {
+            if (i === maxRetries - 1) {
+                console.error("Max retries reached. Failing request.", error);
+                throw error;
+            }
+            const delay = Math.pow(2, i) * 1000 + Math.floor(Math.random() * 1000);
+            console.warn(`Attempt ${i + 1} failed. Retrying in ${delay / 1000}s...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+    // This return is required to satisfy TypeScript's Promise<Response>
+    throw new Error("Max retries exceeded without successful response.");
+};
 
 /**
  * Translates a message using the Gemini API.
  */
+const translateText = async (text: string, targetLangName: string): Promise<string> => {
+    const apiKey = ""; 
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
 
+    const systemPrompt = "You are a professional, high-quality language translator. Translate the user's message precisely into the target language provided. Respond only with the translated text, do not add any conversational wrappers or extra text.";
+    const userQuery = `Translate this message to ${targetLangName}: "${text}"`;
+
+    const payload = {
+        contents: [{ parts: [{ text: userQuery }] }],
+        systemInstruction: {
+            parts: [{ text: systemPrompt }]
+        },
+    };
+
+    try {
+        const response = await fetchWithBackoff(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        const result = await response.json();
+        const translatedText = result.candidates?.[0]?.content?.parts?.[0]?.text || 
+            "Translation failed: API response was empty.";
+        return translatedText;
+    } catch (error) {
+        console.error("Translation API call failed:", error);
+        return "Translation failed due to a network or server error.";
+    }
+};
 
 // --- Main Application Component ---
 const App: React.FC = () => {
@@ -88,7 +159,11 @@ const App: React.FC = () => {
         try {
             const app: FirebaseApp = initializeApp(firebaseConfig);
             const firestore: Firestore = getFirestore(app);
-            // Set debug log level to diagnose potential connection/auth issues
+                
+                console.log(app)
+                console.log("\n")
+                console.log(firestore)
+  
             setLogLevel('debug'); 
             
             const userAuth: Auth = getAuth(app);
@@ -151,7 +226,7 @@ const App: React.FC = () => {
                 ...doc.data() as Omit<ChatMessage, 'id'> // Cast data to the interface
             }));
             setMessages(fetchedMessages);
-        }, (error:any) => {
+        }, (error) => {
             console.error("Error fetching messages:", error);
         });
 
@@ -223,8 +298,75 @@ const App: React.FC = () => {
 
     // --- UI Components ---
     // 6. Type Message Component Props
-   
-    
+    interface MessageProps {
+        message: ChatMessage;
+    }
+
+    const Message: React.FC<MessageProps> = ({ message }) => {
+        const isMyMessage = message.userId === userId;
+        const translation = translatedMessages[message.id];
+
+        // Ensure timestamp is not null before calling toDate()
+        const time = message.timestamp?.toDate ? 
+            message.timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 
+            'Sending...';
+
+        return (
+            <div className={`flex w-full ${isMyMessage ? 'justify-end' : 'justify-start'}`}>
+                <div className={`p-3 max-w-[80%] my-1 rounded-2xl shadow-lg transition-all duration-300 ease-in-out 
+                    ${isMyMessage 
+                        ? 'bg-blue-600 text-white rounded-br-none' 
+                        : 'bg-gray-200 text-gray-800 rounded-tl-none'
+                    }`}
+                >
+                    <div className="flex items-baseline justify-between mb-1">
+                        <span className={`text-xs font-semibold ${isMyMessage ? 'text-blue-200' : 'text-gray-500'}`}>
+                            {message.displayName}
+                        </span>
+                        <span className={`text-[10px] ml-2 ${isMyMessage ? 'text-blue-300' : 'text-gray-400'}`}>
+                            {time}
+                        </span>
+                    </div>
+
+                    <p className="text-sm font-medium whitespace-pre-wrap">{message.text}</p>
+                    
+                    {/* Translation UI */}
+                    <button
+                        onClick={() => handleTranslate(message)}
+                        disabled={isTranslating === message.id}
+                        className={`mt-2 text-xs font-bold py-1 px-2 rounded-full transition duration-150 ease-in-out
+                            ${isMyMessage 
+                                ? 'bg-blue-700 hover:bg-blue-800 text-white' 
+                                : 'bg-gray-300 hover:bg-gray-400 text-gray-700'
+                            }`}
+                    >
+                        {isTranslating === message.id 
+                            ? (
+                                <>
+                                    <svg className="animate-spin -ml-1 mr-1 h-3 w-3 inline text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    Translating...
+                                </>
+                            )
+                            : `Translate to ${LANGUAGE_OPTIONS.find(opt => opt.code === targetLanguage)?.name || 'English'}`
+                        }
+                    </button>
+
+                    {translation && (
+                        <div className="mt-2 pt-2 border-t border-opacity-30 border-current">
+                            <p className="text-xs italic opacity-90">
+                                <span className="font-semibold">{translation.language} Translation: </span>
+                                {translation.text}
+                            </p>
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    };
+
 
     if (!isAuthReady) {
         return (
