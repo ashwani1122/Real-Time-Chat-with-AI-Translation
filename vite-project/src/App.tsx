@@ -8,7 +8,8 @@ import {
 import { 
   getFirestore, collection, query, orderBy, onSnapshot, 
   addDoc, serverTimestamp,  Firestore,  
-  setLogLevel // <-- ADDED: Import setLogLevel for debugging
+  setLogLevel, // <-- ADDED: Import setLogLevel for debugging
+  type DocumentData
 } from 'firebase/firestore';
 
 // Import the functions you need from the SDKs you need
@@ -169,15 +170,18 @@ const App: React.FC = () => {
             setLogLevel('debug'); 
             
             const userAuth: Auth = getAuth(app);
-            const initialAuthToken = localStorage.getItem('authToken');
+            const initialAuthToken = localStorage.getItem('Authorization');
             setDb(firestore);
             setAuth(userAuth);
+            console.log("this is user auth ",userAuth)
             console.log(db)
             // Log in using the provided token or anonymously
             const authenticate = async () => {
                 try {
                     if (initialAuthToken) {
-                        await signInWithCustomToken(userAuth, initialAuthToken);
+                        await signInWithCustomToken(userAuth,
+                          initialAuthToken
+                        );
 
                     } else {
                         await signInAnonymously(userAuth);
@@ -185,11 +189,11 @@ const App: React.FC = () => {
                 } catch (e) {
                     console.error("Firebase Auth failed:", e);
                     // Fallback to anonymous if custom token fails
-                    await signInAnonymously(userAuth);
+                    await signInAnonymously(auth !);
                 }
             };
 
-            const unsubscribe = onAuthStateChanged(userAuth, (user) => {
+            const unsubscribe = onAuthStateChanged(auth!, (user) => {
                 if (user) {
                     setUserId(user.uid);
                     setIsAuthReady(true);
