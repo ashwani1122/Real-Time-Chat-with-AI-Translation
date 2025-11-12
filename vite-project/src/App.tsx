@@ -107,7 +107,7 @@ const fetchWithBackoff = async (url: string, options: RequestInit, maxRetries = 
  * Translates a message using the Gemini API.
  */
 const translateText = async (text: string, targetLangName: string): Promise<string> => {
-    const apiKey = ""; 
+    const apiKey ="AIzaSyAWyVgCc7uTxB_c2rUI3t9nIj9f-nmasQI"
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
 
     const systemPrompt = "You are a professional, high-quality language translator. Translate the user's message precisely into the target language provided. Respond only with the translated text, do not add any conversational wrappers or extra text.";
@@ -317,20 +317,20 @@ const App: React.FC = () => {
         // Ensure timestamp is not null before calling toDate()
         const time = message.timestamp?.toDate ? 
             message.timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 
-            'Sending...';
+            'Sent';
 
         return (
             <div className={`flex w-full ${isMyMessage ? 'justify-end' : 'justify-start'}`}>
                 <div className={`p-3 max-w-[80%] my-1 rounded-2xl shadow-lg transition-all duration-300 ease-in-out 
                     ${isMyMessage 
-                        ? 'bg-blue-600 text-white rounded-br-none' 
+                        ? 'bg-blue-700 text-white rounded-br-none' 
                         : 'bg-gray-200 text-gray-800 rounded-tl-none'
                     }`}
                 >
                     <div className="flex items-baseline justify-between mb-1">
-                        <span className={`text-xs font-semibold ${isMyMessage ? 'text-blue-200' : 'text-gray-500'}`}>
+                       {/** <span className={`text-xs font-semibold ${isMyMessage ? 'text-blue-200' : 'text-gray-500'}`}>
                             {message.displayName}
-                        </span>
+                        </span> */}
                         <span className={`text-[10px] ml-2 ${isMyMessage ? 'text-blue-300' : 'text-gray-400'}`}>
                             {time}
                         </span>
