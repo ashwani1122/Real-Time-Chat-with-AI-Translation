@@ -156,6 +156,8 @@ const App: React.FC = () => {
 
     const scrollRef = useRef<HTMLDivElement>(null);
     const chatRef = useRef<HTMLDivElement>(null);
+    const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
+    const prevMessageCount = useRef<number>(0);
 
     // 1. Firebase Initialization and Authentication
     useEffect(() => {
@@ -243,10 +245,14 @@ const App: React.FC = () => {
 
     // 3. Auto-Scroll to bottom
     useEffect(() => {
-        if (scrollRef.current) {
-            scrollRef.current.scrollIntoView({ behavior: 'smooth' });
-        }
-    }, [messages]);
+    if (messages.length > prevMessageCount.current) {
+    scrollRef.current?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'end',
+    });
+  }
+  prevMessageCount.current = messages.length;
+}, [messages]);
 
     // 4. Send Message Function - Type the event as React.FormEvent
     const sendMessage = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -282,32 +288,53 @@ const App: React.FC = () => {
     };
 
     // 5. Translation Handler - Type the message argument as ChatMessage
-    const handleTranslate = useCallback(async (message: ChatMessage) => {
-        if (isTranslating === message.id) return;
-        
-        const targetLang = LANGUAGE_OPTIONS.find((opt: LanguageOption) => opt.code === targetLanguage);
-        const targetLangName = targetLang ? targetLang.name : 'English';
+   // handleTranslate: preserve scroll position while translating
+const handleTranslate = useCallback(async (message: ChatMessage) => {
+  if (isTranslating === message.id) return;
 
-        setIsTranslating(message.id);
-        setTranslatedMessages(prev => ({ 
-            ...prev, 
-            [message.id]: { text: 'Translating...', language: targetLangName } 
-        }));
+  const targetLang = LANGUAGE_OPTIONS.find((opt) => opt.code === targetLanguage);
+  const targetLangName = targetLang ? targetLang.name : 'English';
 
-        const translatedText = await translateText(message.text, targetLangName);
+  // preserve current scrollTop
+  const chatEl = chatRef.current;
+  const prevScrollTop = chatEl ? chatEl.scrollTop : 0;
 
-        setTranslatedMessages(prev => ({ 
-            ...prev, 
-            [message.id]: { text: translatedText, language: targetLangName } 
-        }));
-        setIsTranslating(null);
-    }, [targetLanguage, isTranslating]);
+  setIsTranslating(message.id);
+  setTranslatedMessages(prev => ({
+    ...prev,
+    [message.id]: { text: 'Translating...', language: targetLangName }
+  }));
+
+  // run translation
+  const translatedText = await translateText(message.text, targetLangName);
+
+  // update translations but restore scroll after DOM updates
+  setTranslatedMessages(prev => ({
+    ...prev,
+    [message.id]: { text: translatedText, language: targetLangName }
+  }));
+  setIsTranslating(null);
+
+  // Restore scroll position after the DOM paints (use two RAFs to be safe)
+  if (chatEl) {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        try {
+          chatEl.scrollTop = prevScrollTop;
+        } catch (e) {
+          // ignore if element removed or not present
+        }
+      });
+    });
+  }
+}, [targetLanguage, isTranslating]);
 
 
     // --- UI Components ---
     // 6. Type Message Component Props
     interface MessageProps {
         message: ChatMessage;
+        messageRefs: React.MutableRefObject<Record<string, HTMLDivElement | null>>;
     }
 
     const Message: React.FC<MessageProps> = ({ message }) => {
@@ -320,13 +347,17 @@ const App: React.FC = () => {
             'Sent';
 
         return (
-            <div className={`flex w-full ${isMyMessage ? 'justify-end' : 'justify-start'}`}>
+            <div 
+            className={`flex w-full ${isMyMessage ? 'justify-end' : 'justify-start'}`}
+            // ✨ FIX: Set the ref for this message's outer container
+            ref={el => messageRefs.current[message.id] = el}
+        >
                 <div className={`p-3 max-w-[80%] my-1 rounded-2xl shadow-lg transition-all duration-300 ease-in-out 
-                    ${isMyMessage 
-                        ? 'bg-blue-700 text-white rounded-br-none' 
-                        : 'bg-gray-200 text-gray-800 rounded-tl-none'
-                    }`}
-                >
+                ${isMyMessage 
+                    ? 'bg-blue-700 text-white rounded-br-none' 
+                    : 'bg-gray-200 text-gray-800 rounded-tl-none'
+                }`}
+            >
                     <div className="flex items-baseline justify-between mb-1">
                        {/** <span className={`text-xs font-semibold ${isMyMessage ? 'text-blue-200' : 'text-gray-500'}`}>
                             {message.displayName}
@@ -335,32 +366,29 @@ const App: React.FC = () => {
                             {time}
                         </span>
                     </div>
-
                     <p className="text-sm font-medium whitespace-pre-wrap">{message.text}</p>
-                    
-                    {/* Translation UI */}
                     <button
-                        onClick={() => handleTranslate(message)}
-                        disabled={isTranslating === message.id}
-                        className={`mt-2 text-xs font-bold py-1 px-2 rounded-full transition duration-150 ease-in-out
-                            ${isMyMessage 
-                                ? 'bg-blue-700 hover:bg-blue-800 text-white' 
-                                : 'bg-gray-300 hover:bg-gray-400 text-gray-700'
-                            }`}
-                    >
-                        {isTranslating === message.id 
-                            ? (
-                                <>
-                                    <svg className="animate-spin -ml-1 mr-1 h-3 w-3 inline text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                    </svg>
-                                    Translating...
-                                </>
-                            )
-                            : `Translate to ${LANGUAGE_OPTIONS.find(opt => opt.code === targetLanguage)?.name || 'English'}`
-                        }
-                    </button>
+  type="button" // IMPORTANT: avoid implicit submit behavior
+  onMouseDown={(e) => e.preventDefault()} // prevents focusing that may cause scroll
+  onClick={() => handleTranslate(message)}
+  disabled={isTranslating === message.id}
+  className={`mt-2 text-xs font-bold py-1 px-2 rounded-full transition duration-150 ease-in-out
+        ${isMyMessage 
+            ? 'bg-blue-700 hover:bg-blue-800 text-white' 
+            : 'bg-gray-300 hover:bg-gray-400 text-gray-700'
+        }`}
+>
+    {isTranslating === message.id ? (
+    <>
+    <svg className="animate-spin -ml-1 mr-1 h-3 w-3 inline text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+    </svg>
+    Translating...
+    </>
+    ) : `Translate to ${LANGUAGE_OPTIONS.find(opt => opt.code === targetLanguage)?.name || 'English'}`}
+</button>
+
 
                     {translation && (
                         <div className="mt-2 pt-2 border-t border-opacity-30 border-current">
@@ -385,7 +413,7 @@ const App: React.FC = () => {
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
                     <p className="text-gray-600 font-medium">Connecting to chat...</p>
-                    {userId && <p className="text-xs text-gray-400 mt-1">User ID: {userId}</p>}
+                    
                 </div>
             </div>
         );
@@ -399,10 +427,10 @@ const App: React.FC = () => {
             <header className="bg-white p-4 shadow-md sticky top-0 z-10">
                 <div className="flex justify-between items-center max-w-4xl mx-auto">
                     <h1 className="text-2xl font-extrabold text-blue-600 tracking-tight">
-                        Polyglot Chat <span className="text-sm font-normal text-gray-500">({firebaseConfig.appId.substring(0, 8)})</span>
+                        Chat Translator
                     </h1>
                     <div className="flex items-center space-x-3">
-                        <label htmlFor="language-select" className="text-sm font-medium text-gray-700 hidden sm:block">
+                        <label htmlFor="language-select" className="text-2xl text-center font-medium text-gray-700 hidden sm:block">
                             Target Language:
                         </label>
                         <select
@@ -418,15 +446,12 @@ const App: React.FC = () => {
                                 <option key={lang.code} value={lang.code}>{lang.name}</option>
                             ))}
                         </select>
-                        <span className="text-xs font-mono text-gray-500 p-1 bg-gray-100 rounded">
-                            {userId}
-                        </span>
                     </div>
                 </div>
             </header>
 
             <main className="flex-grow overflow-hidden max-w-4xl mx-auto w-full">
-                <div ref={chatRef} className="h-full overflow-y-auto p-4 space-y-4">
+                <div ref={chatRef} className="h-full overflow-y-scroll p-4 space-y-4">
                     {messages.length === 0 ? (
                         <div className="text-center pt-20 text-gray-500">
                             <p className="mb-2">Start the conversation!</p>
@@ -434,10 +459,10 @@ const App: React.FC = () => {
                         </div>
                     ) : (
                         messages.map((msg: ChatMessage) => (
-                            <Message key={msg.id} message={msg} />
+                            <Message messageRefs={messageRefs} key={msg.id} message={msg} />
                         ))
                     )}
-                    <div ref={scrollRef}></div> {/* Scroll target */}
+                    <div ref={scrollRef}></div>
                 </div>
             </main>
 
